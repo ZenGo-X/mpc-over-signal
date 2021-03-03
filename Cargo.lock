@@ -1167,6 +1167,8 @@ dependencies = [
  "qr2term",
  "rand 0.7.3",
  "rustls",
+ "serde",
+ "serde_json",
  "sha2",
  "urlencoding",
 ]
