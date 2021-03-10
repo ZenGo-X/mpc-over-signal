@@ -1015,6 +1015,7 @@ dependencies = [
  "actix-rt",
  "aes",
  "anyhow",
+ "async-trait",
  "awc",
  "base64",
  "block-modes",
@@ -1031,6 +1032,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "structopt",
+ "thiserror",
  "tokio",
  "urlencoding",
 ]

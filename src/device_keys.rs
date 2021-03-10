@@ -1,18 +1,16 @@
+use std::collections::HashMap;
 use std::time::SystemTime;
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
-use libsignal_protocol::{IdentityKeyPair, KeyPair};
+use libsignal_protocol::{
+    IdentityKey, IdentityKeyPair, KeyPair, PreKeyRecord, ProtocolAddress, SenderKeyName,
+    SenderKeyRecord, SessionRecord,
+};
 
+use crate::helpers::serde as serde_helpers;
 use crate::webapi::DeviceCreds;
-
-#[derive(Serialize, Deserialize)]
-pub struct Device {
-    pub creds: DeviceCreds,
-    #[serde(flatten)]
-    pub keys: DeviceKeys,
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct DeviceKeys {
@@ -20,6 +18,20 @@ pub struct DeviceKeys {
     pub identity_key_pair: IdentityKeyPair,
     pub signed_pre_key: SignedPreKey,
     pub pre_keys: Vec<PreKey>,
+
+    #[serde(
+        with = "serde_helpers::hash_map::UsingWrappers::<serde_helpers::protocol_address::Wrapper, serde_helpers::identity_key::Wrapper>"
+    )]
+    pub trusted_keys: HashMap<ProtocolAddress, IdentityKey>,
+    pub old_signed_prekeys: Vec<SignedPreKey>,
+    #[serde(
+        with = "serde_helpers::hash_map::UsingWrappers::<serde_helpers::protocol_address::Wrapper, serde_helpers::session_record::Wrapper>"
+    )]
+    pub sessions: HashMap<ProtocolAddress, SessionRecord>,
+    #[serde(
+        with = "serde_helpers::hash_map::UsingWrappers::<serde_helpers::sender_key_name::Wrapper, serde_helpers::sender_key_record::Wrapper>"
+    )]
+    pub sender_keys: HashMap<SenderKeyName, SenderKeyRecord>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -32,11 +44,17 @@ pub struct SignedPreKey {
     pub signature: Box<[u8]>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct PreKey {
     pub id: u32,
     #[serde(with = "crate::helpers::serde::key_pair")]
     pub key_pair: KeyPair,
+}
+
+impl From<&PreKey> for PreKeyRecord {
+    fn from(k: &PreKey) -> Self {
+        PreKeyRecord::new(k.id, &k.key_pair)
+    }
 }
 
 impl DeviceKeys {
@@ -80,6 +98,10 @@ impl DeviceKeys {
             identity_key_pair,
             signed_pre_key,
             pre_keys,
+            trusted_keys: Default::default(),
+            old_signed_prekeys: Default::default(),
+            sessions: Default::default(),
+            sender_keys: Default::default(),
         })
     }
 }

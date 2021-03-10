@@ -16,6 +16,7 @@ pub struct DeviceCreds {
     pub username: Username,
     #[derivative(Debug(format_with = "crate::helpers::fmt::hide_content"))]
     pub password_64: String,
+    pub registration_id: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -35,7 +36,7 @@ impl fmt::Display for Username {
 struct CreateDeviceRequest {
     pub name: String,
     pub fetches_messages: bool,
-    pub registration_id: u16,
+    pub registration_id: u32,
 }
 
 #[derive(Deserialize)]
@@ -55,7 +56,7 @@ pub async fn create_device<R: Rng + CryptoRng>(
     let mut password_64 = base64::encode(password);
     password_64.drain(password_64.len() - 2..);
 
-    let registration_id = rnd.gen::<u16>() & 0x3fff;
+    let registration_id = rnd.gen::<u32>() & 0x3fff;
 
     let request_body = CreateDeviceRequest {
         name: device_name,
@@ -88,5 +89,6 @@ pub async fn create_device<R: Rng + CryptoRng>(
             device_id: created_device.device_id,
         },
         password_64,
+        registration_id,
     })
 }

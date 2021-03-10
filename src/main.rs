@@ -1,17 +1,20 @@
-use crate::device_keys::Device;
-use actix::utils::Condition;
 use anyhow::{Context, Result};
-use futures::channel::oneshot;
 use rand::rngs::OsRng;
 use structopt::StructOpt;
+
+use actix::utils::Condition;
+use futures::channel::oneshot;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
+
+use crate::device::Device;
 
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/signalservice.rs"));
 }
 
 mod cli;
+mod device;
 mod device_keys;
 mod helpers;
 mod webapi;
@@ -91,10 +94,7 @@ async fn login(args: cli::Login) -> Result<()> {
         .context("submit generated keys")?;
 
     // Save keys
-    let device = Device {
-        creds,
-        keys: device_keys,
-    };
+    let device = Device::new(creds, device_keys);
     let keys_content = serde_json::to_vec_pretty(&device).context("serialize device keys")?;
 
     let mut options = OpenOptions::new();
