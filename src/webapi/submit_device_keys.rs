@@ -4,8 +4,7 @@ use serde::Serialize;
 
 use anyhow::{anyhow, ensure, Result};
 
-use super::create_device::DeviceCreds;
-use crate::device_keys::DeviceKeys;
+use crate::device::{DeviceAuth, DeviceCreds, DeviceKeys};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,7 +74,7 @@ pub async fn submit_device_keys(
 
     let response = client
         .put("https://textsecure-service.whispersystems.org/v2/keys")
-        .basic_auth(&creds.username, Some(&creds.password_64))
+        .device_auth(&creds)
         .send_json(&request_body)
         .await
         .map_err(|e| anyhow!("submitting keys: {}", e))?;

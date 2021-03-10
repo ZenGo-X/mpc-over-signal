@@ -5,31 +5,10 @@ use awc::Client;
 use serde::{Deserialize, Serialize};
 
 use anyhow::{anyhow, ensure, Context, Result};
-use derivative::Derivative;
 use rand::{CryptoRng, Rng};
 
 use super::link_device::DecryptedProvision;
-
-#[derive(Serialize, Deserialize, Derivative)]
-#[derivative(Debug)]
-pub struct DeviceCreds {
-    pub username: Username,
-    #[derivative(Debug(format_with = "crate::helpers::fmt::hide_content"))]
-    pub password_64: String,
-    pub registration_id: u32,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Username {
-    pub name: String,
-    pub device_id: u32,
-}
-
-impl fmt::Display for Username {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}.{}", self.name, self.device_id)
-    }
-}
+use crate::device::{DeviceCreds, Username};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,12 +62,12 @@ pub async fn create_device<R: Rng + CryptoRng>(
     let created_device: CreateDeviceResponse =
         response.json().await.context("parse server response")?;
 
-    Ok(DeviceCreds {
-        username: Username {
+    Ok(DeviceCreds::new(
+        Username {
             name: provision.number.clone(),
             device_id: created_device.device_id,
         },
         password_64,
         registration_id,
-    })
+    ))
 }

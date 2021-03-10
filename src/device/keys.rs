@@ -10,7 +10,6 @@ use libsignal_protocol::{
 };
 
 use crate::helpers::serde as serde_helpers;
-use crate::webapi::DeviceCreds;
 
 #[derive(Serialize, Deserialize)]
 pub struct DeviceKeys {

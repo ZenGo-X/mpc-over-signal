@@ -15,7 +15,6 @@ pub mod proto {
 
 mod cli;
 mod device;
-mod device_keys;
 mod helpers;
 mod webapi;
 
@@ -83,9 +82,8 @@ async fn login(args: cli::Login) -> Result<()> {
     println!("Created device: {:#?}", creds);
     println!("Generating device keys...");
 
-    let device_keys =
-        device_keys::DeviceKeys::generate(&mut OsRng, provisioning_msg.identity_key_pair)
-            .context("generate device keys")?;
+    let device_keys = device::DeviceKeys::generate(&mut OsRng, provisioning_msg.identity_key_pair)
+        .context("generate device keys")?;
 
     println!("Registering device keys...");
 

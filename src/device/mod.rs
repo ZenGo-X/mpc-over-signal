@@ -14,8 +14,11 @@ use libsignal_protocol::{
     IdentityKeyStore, PreKeyStore, SenderKeyStore, SessionStore, SignedPreKeyStore,
 };
 
-use crate::device_keys::{DeviceKeys, PreKey, SignedPreKey};
-use crate::webapi::DeviceCreds;
+mod creds;
+mod keys;
+
+pub use creds::{DeviceAuth, DeviceCreds, Username};
+pub use keys::{DeviceKeys, PreKey, SignedPreKey};
 
 #[derive(Serialize, Deserialize)]
 pub struct Device {
