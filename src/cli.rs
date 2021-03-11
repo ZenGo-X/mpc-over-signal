@@ -14,19 +14,42 @@ pub enum Cmd {
     /// Logins to Signal by linking to application on your phone
     Login(Login),
     Whoami(Whoami),
+    TrustTo(AddTrust),
+    Me(Me),
 }
 
 #[derive(Debug, StructOpt)]
 pub struct Login {
     /// A successful login will produce keys file containing sensitive information that should be
     /// kept in secret! File will include: identity secret key, encryption/decryption keys, etc.
-    #[structopt(default_value = "secret-keys.json")]
+    #[structopt(long, default_value = "secret-keys.json")]
     pub keys: PathBuf,
 }
 
 #[derive(Debug, StructOpt)]
 pub struct Whoami {
-    /// Path to a file containing private access keys
-    #[structopt(default_value = "secret-keys.json")]
+    /// Path to a file containing device private keys
+    #[structopt(long, default_value = "secret-keys.json")]
+    pub keys: PathBuf,
+}
+
+#[derive(Debug, StructOpt)]
+pub struct AddTrust {
+    #[structopt(index = 1)]
+    pub name: String,
+    #[structopt(index = 2)]
+    pub device_id: u32,
+    #[structopt(index = 3, name = "public_key")]
+    pub public_key_64: String,
+
+    /// Path to a file containing device private keys
+    #[structopt(long, default_value = "secret-keys.json")]
+    pub keys: PathBuf,
+}
+
+#[derive(Debug, StructOpt)]
+pub struct Me {
+    /// Path to a file containing device private keys
+    #[structopt(long, default_value = "secret-keys.json")]
     pub keys: PathBuf,
 }

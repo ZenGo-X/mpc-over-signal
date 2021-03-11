@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use rand::rngs::OsRng;
 use structopt::StructOpt;
 
@@ -8,6 +8,8 @@ use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 
 use crate::device::Device;
+use libsignal_protocol::{ProtocolAddress, PublicKey};
+use std::path::Path;
 
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/signalservice.rs"));
@@ -25,6 +27,8 @@ async fn main() -> Result<()> {
     match args.cmd {
         cli::Cmd::Login(args) => login(args).await,
         cli::Cmd::Whoami(args) => whoami(args).await,
+        cli::Cmd::TrustTo(args) => add_trust(args).await,
+        cli::Cmd::Me(args) => me(args).await,
     }
 }
 
@@ -92,37 +96,89 @@ async fn login(args: cli::Login) -> Result<()> {
         .context("submit generated keys")?;
 
     // Save keys
-    let device = Device::new(creds, device_keys);
-    let keys_content = serde_json::to_vec_pretty(&device).context("serialize device keys")?;
-
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let mut keys_file = options
-        .open(args.keys)
-        .await
-        .context("cannot create keys file")?;
-
-    keys_file
-        .write_all(&keys_content)
-        .await
-        .context("write keys file")?;
+    device_write(&Device::new(creds, device_keys), args.keys, false).await?;
 
     Ok(())
 }
 
 async fn whoami(args: cli::Whoami) -> Result<()> {
-    let keys = tokio::fs::read(args.keys)
-        .await
-        .context("read secret keys file")?;
-    let keys: Device = serde_json::from_slice(&keys).context("parse secret keys file")?;
+    let device = device_read(args.keys).await?;
 
     let client = webapi::default_http_client().context("construct default http client")?;
-    let response = webapi::whoami(&client, &keys.creds)
+    let response = webapi::whoami(&client, &device.creds)
         .await
         .context("performing request")?;
 
     println!("{:#?}", response);
+    Ok(())
+}
+
+async fn add_trust(args: cli::AddTrust) -> Result<()> {
+    let mut device = device_read(&args.keys).await?;
+
+    let address = ProtocolAddress::new(args.name, args.device_id);
+    let public_key = base64::decode(args.public_key_64)
+        .context("invalid public key: malformed base64 string")?;
+    let public_key =
+        PublicKey::deserialize(&public_key).map_err(|e| anyhow!("invalid public key: {}", e))?;
+
+    device.keys.trusted_keys.insert(address, public_key.into());
+
+    device_write(&device, args.keys, true).await?;
+
+    Ok(())
+}
+
+async fn me(args: cli::Me) -> Result<()> {
+    let device = device_read(args.keys).await?;
+
+    let pk = base64::encode(device.keys.identity_key_pair.public_key().serialize());
+
+    println!("Your name      : {}", device.creds.username.name);
+    println!("     device_id : {}", device.creds.username.device_id);
+    println!("     public key: {}", pk);
+    println!();
+    println!("You can add this device to another mpc-over-signal instance's");
+    println!("list of trusted parties via following command:");
+    println!(
+        "  mpc-over-signal trust-to {} {} {}",
+        device.creds.username.name, device.creds.username.device_id, pk
+    );
+    println!();
+
+    Ok(())
+}
+
+async fn device_read(path: impl AsRef<Path>) -> Result<Device> {
+    let device = tokio::fs::read(path)
+        .await
+        .context("read secret keys file")?;
+    serde_json::from_slice(&device).context("parse secret keys file")
+}
+
+async fn device_write(device: &Device, path: impl AsRef<Path>, may_overwrite: bool) -> Result<()> {
+    let device_content = serde_json::to_vec_pretty(device).context("serialize device")?;
+
+    let mut options = OpenOptions::new();
+
+    #[cfg(unix)]
+    options.mode(0o600);
+    options.write(true);
+    if may_overwrite {
+        options.create(true).truncate(true);
+    } else {
+        options.create_new(true);
+    }
+
+    let mut device_file = options
+        .open(path)
+        .await
+        .context("cannot create keys file")?;
+
+    device_file
+        .write_all(&device_content)
+        .await
+        .context("write keys file")?;
+
     Ok(())
 }

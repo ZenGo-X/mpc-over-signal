@@ -318,23 +318,17 @@ pub mod protocol_address {
     use super::*;
 
     #[derive(Serialize, Deserialize, Eq, PartialEq, Hash)]
-    pub struct Wrapper {
-        name: String,
-        device_id: u32,
-    }
+    pub struct Wrapper(#[serde(with = "self")] ProtocolAddress);
 
     impl From<Wrapper> for ProtocolAddress {
         fn from(w: Wrapper) -> Self {
-            ProtocolAddress::new(w.name, w.device_id)
+            w.0
         }
     }
 
     impl From<ProtocolAddress> for Wrapper {
         fn from(a: ProtocolAddress) -> Self {
-            Wrapper {
-                name: a.name().into(),
-                device_id: a.device_id(),
-            }
+            Wrapper(a)
         }
     }
 
@@ -342,14 +336,28 @@ pub mod protocol_address {
     where
         S: Serializer,
     {
-        Wrapper::serialize(&Wrapper::from(address.clone()), s)
+        let address = format!("{}.{}", address.name(), address.device_id());
+        address.serialize(s)
     }
 
     pub fn deserialize<'de, D>(d: D) -> Result<ProtocolAddress, D::Error>
     where
         D: Deserializer<'de>,
     {
-        Wrapper::deserialize(d).map(ProtocolAddress::from)
+        let address = String::deserialize(d)?;
+        let mut address = address.split('.');
+        let name = address
+            .next()
+            .ok_or(de::Error::custom("malformed address"))?;
+        let device_id: u32 = address
+            .next()
+            .ok_or(de::Error::custom("malformed address: missing device_id"))?
+            .parse()
+            .map_err(|_e| de::Error::custom("device_id must be integer"))?;
+        if address.next().is_some() {
+            return Err(de::Error::custom("device_id must be an integer"));
+        }
+        Ok(ProtocolAddress::new(name.into(), device_id))
     }
 }
 
@@ -373,27 +381,50 @@ pub mod sender_key_name {
         }
     }
 
-    #[derive(Serialize, Deserialize)]
-    struct SerializableRepresentation {
-        group_id: String,
-        sender: protocol_address::Wrapper,
-    }
-
     pub fn serialize<S>(name: &SenderKeyName, s: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         let group_id = name.group_id().map_err(ser::Error::custom)?;
-        let sender = name.sender().map_err(ser::Error::custom)?.into();
-        SerializableRepresentation { group_id, sender }.serialize(s)
+        let sender = name.sender().map_err(ser::Error::custom)?;
+        let sender_key_name = format!("{}.{}.{}", sender.name(), sender.device_id(), group_id);
+        if group_id.contains('.') {
+            // TODO: allow group_id containing a dot (deserialize function must be fixed first)
+            //       (blocked on https://github.com/rust-lang/rust/issues/77998)
+            return Err(ser::Error::custom("group_id must not contain a dot"));
+        }
+        sender_key_name.serialize(s)
     }
 
     pub fn deserialize<'de, D>(d: D) -> Result<SenderKeyName, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let repr = SerializableRepresentation::deserialize(d)?;
-        SenderKeyName::new(repr.group_id, repr.sender.into()).map_err(de::Error::custom)
+        let sender_key_name = String::deserialize(d)?;
+        let mut sender_key_name = sender_key_name.split('.');
+        let name = sender_key_name
+            .next()
+            .ok_or(de::Error::custom("malformed address"))?;
+        let device_id: u32 = sender_key_name
+            .next()
+            .ok_or(de::Error::custom("malformed address: missing device_id"))?
+            .parse()
+            .map_err(|_e| de::Error::custom("device_id must be integer"))?;
+        let group_id = sender_key_name
+            .next()
+            .ok_or(de::Error::custom("malformed address: missing group_id"))?;
+
+        if sender_key_name.next().is_some() {
+            return Err(de::Error::custom(
+                "malformed sender key name: too many dots",
+            ));
+        }
+
+        SenderKeyName::new(
+            group_id.into(),
+            ProtocolAddress::new(name.into(), device_id),
+        )
+        .map_err(de::Error::custom)
     }
 }
 
