@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
 use libsignal_protocol::{
-    IdentityKey, IdentityKeyPair, KeyPair, PreKeyRecord, ProtocolAddress, SenderKeyName,
+    IdentityKey, IdentityKeyPair, KeyPair, PreKeyRecord, ProtocolAddress, PublicKey, SenderKeyName,
     SenderKeyRecord, SessionRecord,
 };
 

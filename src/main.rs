@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use rand::rngs::OsRng;
 use structopt::StructOpt;
 
@@ -8,7 +8,12 @@ use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 
 use crate::device::Device;
-use libsignal_protocol::{ProtocolAddress, PublicKey};
+use crate::webapi::RetrievedDevicePublicKeys;
+use futures::TryFutureExt;
+use libsignal_protocol::{
+    CiphertextMessage, CiphertextMessageType, PreKeyBundle, ProtocolAddress, PublicKey,
+    SignalProtocolError,
+};
 use std::path::Path;
 
 pub mod proto {
@@ -29,6 +34,7 @@ async fn main() -> Result<()> {
         cli::Cmd::Whoami(args) => whoami(args).await,
         cli::Cmd::TrustTo(args) => add_trust(args).await,
         cli::Cmd::Me(args) => me(args).await,
+        cli::Cmd::Send(args) => send_message(args).await,
     }
 }
 
@@ -91,7 +97,7 @@ async fn login(args: cli::Login) -> Result<()> {
 
     println!("Registering device keys...");
 
-    webapi::submit_device_keys(client, &creds, &device_keys)
+    webapi::submit_device_keys(client, &creds, &(&device_keys).into())
         .await
         .context("submit generated keys")?;
 
@@ -146,6 +152,86 @@ async fn me(args: cli::Me) -> Result<()> {
     );
     println!();
 
+    Ok(())
+}
+
+async fn send_message(args: cli::SendMessage) -> Result<()> {
+    println!("{:#?}", args);
+    let csprng = &mut OsRng;
+    let mut device = device_read(&args.keys).await?;
+    let remote_address = ProtocolAddress::new(args.receiver_name, args.receiver_device_id);
+
+    let client = webapi::default_http_client().context("construct default http client")?;
+    let result = device
+        .message_encrypt(&remote_address, args.message.as_bytes())
+        .await;
+
+    let remote_registration_id: Option<u32>;
+
+    let c = match result {
+        Err(SignalProtocolError::SessionNotFound(_)) => {
+            // let remote_keys =
+            //     webapi::get_device_keys(&client, &device.creds, &remote_address).await?;
+            let remote_keys: RetrievedDevicePublicKeys = serde_json::from_str(r#"{"identity_key":"BfcZaEHBafteh31EH4NAo8xTqc83wGiVGrDSmrVWKU0n","signed_pre_key":{"keyId":0,"publicKey":"BfCX0yBlJfWGugtKPpN8yrkgkVT20P1BZsWN85KfiMlg","signature":"/Apd4TrlPzhmTX1sxrbLgABEtkzAheN4gw5UU4XEt7n1fhIJYkWOSydP7iknnRG8t/ti0QjJ+Fxe3RmGFxY2Bw=="},"pre_key":null,"registration_id":111}"#)
+                .unwrap();
+            remote_registration_id = Some(remote_keys.registration_id);
+            // TODO!
+            println!("{}", serde_json::to_string(&remote_keys).unwrap());
+            let bundle = PreKeyBundle::new(
+                remote_keys.registration_id,
+                remote_address.device_id(),
+                remote_keys.pre_key.map(|k| (k.key_id, k.public_key)),
+                remote_keys.signed_pre_key.key_id,
+                remote_keys.signed_pre_key.public_key,
+                remote_keys.signed_pre_key.signature.into(),
+                remote_keys.identity_key,
+            )
+            .map_err(|e| anyhow!("make a pre key bundle: {}", e))?;
+            device
+                .process_prekey_bundle(csprng, &remote_address, &bundle)
+                .await
+                .map_err(|e| anyhow!("process a prekey bundle: {}", e))?;
+            let c = device
+                .message_encrypt(&remote_address, args.message.as_bytes())
+                .await
+                .map_err(|e| anyhow!("failed to encrypt a message: {}", e))?;
+            match &c {
+                CiphertextMessage::PreKeySignalMessage(m) => {
+                    println!("registration_id: {}", m.registration_id())
+                }
+                _ => (),
+            }
+            c
+        }
+        Err(e) => {
+            bail!("failed to encrypt a message: {}", e)
+        }
+        Ok(c) => {
+            remote_registration_id = None;
+            c
+        }
+    };
+
+    webapi::send_messages(
+        &client,
+        &device.creds,
+        match c.message_type() {
+            CiphertextMessageType::PreKey => 3,
+            CiphertextMessageType::Whisper => 1,
+            _ => bail!("got unexpected ciphertext type"),
+        },
+        &remote_address,
+        remote_registration_id,
+        c.serialize(),
+    )
+    .await
+    .context("send message")?;
+
+    device_write(&device, args.keys, true)
+        .await
+        .context("save device file")?;
+
+    println!("Message sent!");
     Ok(())
 }
 

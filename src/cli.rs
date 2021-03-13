@@ -16,6 +16,7 @@ pub enum Cmd {
     Whoami(Whoami),
     TrustTo(AddTrust),
     Me(Me),
+    Send(SendMessage),
 }
 
 #[derive(Debug, StructOpt)]
@@ -49,6 +50,20 @@ pub struct AddTrust {
 
 #[derive(Debug, StructOpt)]
 pub struct Me {
+    /// Path to a file containing device private keys
+    #[structopt(long, default_value = "secret-keys.json")]
+    pub keys: PathBuf,
+}
+
+#[derive(Debug, StructOpt)]
+pub struct SendMessage {
+    #[structopt(index = 1)]
+    pub receiver_name: String,
+    #[structopt(index = 2)]
+    pub receiver_device_id: u32,
+    #[structopt(index = 3)]
+    pub message: String,
+
     /// Path to a file containing device private keys
     #[structopt(long, default_value = "secret-keys.json")]
     pub keys: PathBuf,
