@@ -159,5 +159,8 @@ pub async fn link_device<R: Rng + CryptoRng>(
         .await
         .context("close provision connection")?;
 
-    provision_cipher.decrypt(req)
+    let mut provision_msg = provision_cipher.decrypt(req)?;
+    provision_msg.uuid.make_ascii_lowercase();
+
+    Ok(provision_msg)
 }

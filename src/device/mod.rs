@@ -1,19 +1,14 @@
-use std::collections::HashMap;
-use std::mem::replace;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use rand::{CryptoRng, Rng};
 
-use libsignal_protocol::error::{Result, SignalProtocolError};
+use libsignal_protocol::error::Result;
 use libsignal_protocol::{
     message_decrypt_prekey, message_decrypt_signal, message_encrypt, process_prekey_bundle,
-    CiphertextMessage, Context, Direction, IdentityKey, IdentityKeyPair, PreKeyBundle,
-    PreKeyRecord, PreKeySignalMessage, ProtocolAddress, SenderKeyName, SenderKeyRecord,
-    SessionRecord, SignalMessage, SignedPreKeyRecord,
+    CiphertextMessage, PreKeyBundle,
+    PreKeySignalMessage, ProtocolAddress, SignalMessage,
 };
 use libsignal_protocol::{
     IdentityKeyStore, PreKeyStore, SenderKeyStore, SessionStore, SignedPreKeyStore,
@@ -38,7 +33,8 @@ impl Device {
         Self { creds, keys }
     }
 
-    pub fn clean_signed_pre_keys_older_than(&mut self, age: Duration) {
+    #[allow(dead_code)]
+    pub fn clean_signed_pre_keys_older_than(&mut self, _age: Duration) {
         todo!()
     }
 

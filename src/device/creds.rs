@@ -21,6 +21,15 @@ impl DeviceCreds {
             password_64,
         }
     }
+
+    pub fn login(&self) -> impl fmt::Display + '_ {
+        &self.username
+    }
+
+    /// Do not use it if it's possible.
+    pub fn password(&self) -> impl fmt::Display + '_ {
+        &self.password_64
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

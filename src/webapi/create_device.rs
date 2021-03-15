@@ -1,5 +1,3 @@
-use std::fmt;
-
 use awc::http::StatusCode;
 use awc::Client;
 use serde::{Deserialize, Serialize};
@@ -64,7 +62,7 @@ pub async fn create_device<R: Rng + CryptoRng>(
 
     Ok(DeviceCreds::new(
         Username {
-            name: provision.number.clone(),
+            name: provision.uuid.clone(),
             device_id: created_device.device_id,
         },
         password_64,

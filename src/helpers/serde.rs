@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
+
 use std::marker::PhantomData;
 use std::{cmp, fmt, hash};
 
@@ -270,7 +270,6 @@ pub mod protocol_address {
 
 pub mod sender_key_name {
     use super::*;
-    use libsignal_protocol::SignalProtocolError;
 
     #[derive(Deserialize, Serialize, Eq, PartialEq, Hash)]
     #[serde(transparent)]

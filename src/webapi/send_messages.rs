@@ -5,7 +5,7 @@ use std::{future::Future, pin::Pin};
 use awc::http::StatusCode;
 use awc::Client;
 
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 
@@ -107,7 +107,7 @@ fn send_messages_with_known_total_devices<'s>(
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .context("broken clocks")?
                 .as_secs(),
-            online: true,
+            online: false,
         };
         println!("Send request: {:#?}", response_body);
         let mut response = client

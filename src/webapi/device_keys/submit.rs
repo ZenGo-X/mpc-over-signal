@@ -1,9 +1,8 @@
-use awc::http::StatusCode;
 use awc::Client;
 
 use anyhow::{anyhow, ensure, Result};
 
-use super::types::{PublicPreKey, SignedPublicPreKey, SubmitDevicePublicKeys};
+use super::types::SubmitDevicePublicKeys;
 use crate::device::{DeviceAuth, DeviceCreds};
 
 pub async fn submit_device_keys(

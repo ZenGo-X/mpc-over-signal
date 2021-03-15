@@ -1,20 +1,23 @@
+use std::convert::TryFrom;
+use std::path::Path;
+
 use anyhow::{anyhow, bail, Context, Result};
 use rand::rngs::OsRng;
 use structopt::StructOpt;
 
 use actix::utils::Condition;
-use futures::channel::oneshot;
+use futures::channel::{mpsc, oneshot};
+use futures::StreamExt;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 
-use crate::device::Device;
-use crate::webapi::RetrievedDevicePublicKeys;
-use futures::TryFutureExt;
 use libsignal_protocol::{
-    CiphertextMessage, CiphertextMessageType, PreKeyBundle, ProtocolAddress, PublicKey,
-    SignalProtocolError,
+    CiphertextMessage, CiphertextMessageType, PreKeyBundle, PreKeySignalMessage, ProtocolAddress,
+    PublicKey, SignalMessage, SignalProtocolError,
 };
-use std::path::Path;
+
+use crate::device::Device;
+use crate::proto::envelope;
 
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/signalservice.rs"));
@@ -35,6 +38,7 @@ async fn main() -> Result<()> {
         cli::Cmd::TrustTo(args) => add_trust(args).await,
         cli::Cmd::Me(args) => me(args).await,
         cli::Cmd::Send(args) => send_message(args).await,
+        cli::Cmd::Receive(args) => receive_messages(args).await,
     }
 }
 
@@ -122,7 +126,7 @@ async fn whoami(args: cli::Whoami) -> Result<()> {
 async fn add_trust(args: cli::AddTrust) -> Result<()> {
     let mut device = device_read(&args.keys).await?;
 
-    let address = ProtocolAddress::new(args.name, args.device_id);
+    let address = ProtocolAddress::new(args.name.to_ascii_lowercase(), args.device_id);
     let public_key = base64::decode(args.public_key_64)
         .context("invalid public key: malformed base64 string")?;
     let public_key =
@@ -156,7 +160,6 @@ async fn me(args: cli::Me) -> Result<()> {
 }
 
 async fn send_message(args: cli::SendMessage) -> Result<()> {
-    println!("{:#?}", args);
     let csprng = &mut OsRng;
     let mut device = device_read(&args.keys).await?;
     let remote_address = ProtocolAddress::new(args.receiver_name, args.receiver_device_id);
@@ -170,17 +173,14 @@ async fn send_message(args: cli::SendMessage) -> Result<()> {
 
     let c = match result {
         Err(SignalProtocolError::SessionNotFound(_)) => {
-            // let remote_keys =
-            //     webapi::get_device_keys(&client, &device.creds, &remote_address).await?;
-            let remote_keys: RetrievedDevicePublicKeys = serde_json::from_str(r#"{"identity_key":"BfcZaEHBafteh31EH4NAo8xTqc83wGiVGrDSmrVWKU0n","signed_pre_key":{"keyId":0,"publicKey":"BfCX0yBlJfWGugtKPpN8yrkgkVT20P1BZsWN85KfiMlg","signature":"/Apd4TrlPzhmTX1sxrbLgABEtkzAheN4gw5UU4XEt7n1fhIJYkWOSydP7iknnRG8t/ti0QjJ+Fxe3RmGFxY2Bw=="},"pre_key":null,"registration_id":111}"#)
-                .unwrap();
+            let remote_keys =
+                webapi::get_device_keys(&client, &device.creds, &remote_address).await?;
             remote_registration_id = Some(remote_keys.registration_id);
-            // TODO!
-            println!("{}", serde_json::to_string(&remote_keys).unwrap());
+            // TODO: PreKey = Some(..) breaks decryption
             let bundle = PreKeyBundle::new(
                 remote_keys.registration_id,
                 remote_address.device_id(),
-                remote_keys.pre_key.map(|k| (k.key_id, k.public_key)),
+                None, // remote_keys.pre_key.map(|k| (k.key_id, k.public_key)),
                 remote_keys.signed_pre_key.key_id,
                 remote_keys.signed_pre_key.public_key,
                 remote_keys.signed_pre_key.signature.into(),
@@ -232,6 +232,56 @@ async fn send_message(args: cli::SendMessage) -> Result<()> {
         .context("save device file")?;
 
     println!("Message sent!");
+    Ok(())
+}
+
+async fn receive_messages(args: cli::ReceiveMessages) -> Result<()> {
+    let csprng = &mut OsRng;
+    let device = device_read(&args.keys).await?;
+    let client = webapi::default_http_client().context("construct default http client")?;
+    let (tx, mut rx) = mpsc::channel(16);
+    let join = actix::spawn(async move {
+        if let Err(e) = webapi::receive_messages(&client, &device.creds, tx).await {
+            eprintln!("receiving messages resulted in error: {}", e);
+        }
+    });
+
+    while let Some(msg) = rx.next().await {
+        let mut device = device_read(&args.keys).await?;
+
+        let remote_address = ProtocolAddress::new(msg.source_uuid().into(), msg.source_device());
+        let plaintext = match msg.r#type() {
+            envelope::Type::PrekeyBundle => {
+                let ciphertext = PreKeySignalMessage::try_from(msg.content())
+                    .map_err(|e| anyhow!("failed to parse PreKeySignalMessage: {}", e))?;
+                device
+                    .message_decrypt_prekey(csprng, &remote_address, &ciphertext)
+                    .await
+                    .map_err(|e| anyhow!("decrypt PreKeySignalMessage: {}", e))?
+            }
+            envelope::Type::Ciphertext => {
+                let ciphertext = SignalMessage::try_from(msg.content())
+                    .map_err(|e| anyhow!("parse SignalMessage: {}", e))?;
+                device
+                    .message_decrypt_signal(csprng, &remote_address, &ciphertext)
+                    .await
+                    .map_err(|e| anyhow!("decrypt SignalMessage: {}", e))?
+            }
+            ty => {
+                eprintln!("received unexpected message type: {:?}", ty);
+                continue;
+            }
+        };
+        println!("Received message: {}", String::from_utf8_lossy(&plaintext));
+
+        device_write(&device, &args.keys, true)
+            .await
+            .context("save device file")?;
+    }
+
+    join.await
+        .context("wait for receive_messages to complete")?;
+
     Ok(())
 }
 

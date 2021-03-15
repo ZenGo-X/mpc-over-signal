@@ -1,4 +1,3 @@
-use awc::http::StatusCode;
 use awc::Client;
 
 use anyhow::{anyhow, ensure, Result};
@@ -6,9 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use libsignal_protocol::{IdentityKey, ProtocolAddress};
 
-use super::types::{
-    PublicPreKey, RetrievedDevicePublicKeysResponse, SignedPublicPreKey, SubmitDevicePublicKeys,
-};
+use super::types::{PublicPreKey, RetrievedDevicePublicKeysResponse, SignedPublicPreKey};
 use crate::device::{DeviceAuth, DeviceCreds};
 
 #[derive(Serialize, Deserialize)]

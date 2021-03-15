@@ -3,7 +3,7 @@ use std::mem::replace;
 use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+
 use thiserror::Error;
 
 use libsignal_protocol::error::{Result, SignalProtocolError};
@@ -39,7 +39,9 @@ impl<'a> IdentityKeyStore for DeviceIdentityKeyStore<'a> {
         identity: &IdentityKey,
         _ctx: Context,
     ) -> Result<bool> {
-        let was = self.trusted_keys.insert(address.clone(), *identity);
+        let address =
+            ProtocolAddress::new(address.name().to_ascii_lowercase(), address.device_id());
+        let was = self.trusted_keys.insert(address, *identity);
         match was {
             Some(old_identity) => Ok(&old_identity != identity),
             None => Ok(false),
@@ -53,9 +55,11 @@ impl<'a> IdentityKeyStore for DeviceIdentityKeyStore<'a> {
         _direction: Direction,
         _ctx: Context,
     ) -> Result<bool> {
+        let address =
+            ProtocolAddress::new(address.name().to_ascii_lowercase(), address.device_id());
         Ok(self
             .trusted_keys
-            .get(address)
+            .get(&address)
             .map(|i| i == identity)
             .unwrap_or(false))
     }
@@ -65,7 +69,9 @@ impl<'a> IdentityKeyStore for DeviceIdentityKeyStore<'a> {
         address: &ProtocolAddress,
         _ctx: Context,
     ) -> Result<Option<IdentityKey>> {
-        Ok(self.trusted_keys.get(address).cloned())
+        let address =
+            ProtocolAddress::new(address.name().to_ascii_lowercase(), address.device_id());
+        Ok(self.trusted_keys.get(&address).cloned())
     }
 }
 
@@ -216,7 +222,9 @@ impl<'d> SessionStore for DeviceSessionStore<'d> {
         address: &ProtocolAddress,
         _ctx: Context,
     ) -> Result<Option<SessionRecord>> {
-        Ok(self.sessions.get(address).cloned())
+        let address =
+            ProtocolAddress::new(address.name().to_ascii_lowercase(), address.device_id());
+        Ok(self.sessions.get(&address).cloned())
     }
 
     async fn store_session(
@@ -225,7 +233,9 @@ impl<'d> SessionStore for DeviceSessionStore<'d> {
         record: &SessionRecord,
         _ctx: Context,
     ) -> Result<()> {
-        self.sessions.insert(address.clone(), record.clone());
+        let address =
+            ProtocolAddress::new(address.name().to_ascii_lowercase(), address.device_id());
+        self.sessions.insert(address, record.clone());
         Ok(())
     }
 }

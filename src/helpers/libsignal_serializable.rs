@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::marker::PhantomData;
 
-use serde::{de, ser, Deserialize, Serialize};
+use serde::{de, ser};
 
 use libsignal_protocol::{
     IdentityKey, IdentityKeyPair, PrivateKey, PublicKey, SenderKeyRecord, SessionRecord,
