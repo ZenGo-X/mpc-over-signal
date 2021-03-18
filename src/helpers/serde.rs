@@ -255,10 +255,10 @@ pub mod protocol_address {
         let mut address = address.split('.');
         let name = address
             .next()
-            .ok_or(de::Error::custom("malformed address"))?;
+            .ok_or_else(|| de::Error::custom("malformed address"))?;
         let device_id: u32 = address
             .next()
-            .ok_or(de::Error::custom("malformed address: missing device_id"))?
+            .ok_or_else(|| de::Error::custom("malformed address: missing device_id"))?
             .parse()
             .map_err(|_e| de::Error::custom("device_id must be integer"))?;
         if address.next().is_some() {
@@ -310,15 +310,15 @@ pub mod sender_key_name {
         let mut sender_key_name = sender_key_name.split('.');
         let name = sender_key_name
             .next()
-            .ok_or(de::Error::custom("malformed address"))?;
+            .ok_or_else(|| de::Error::custom("malformed address"))?;
         let device_id: u32 = sender_key_name
             .next()
-            .ok_or(de::Error::custom("malformed address: missing device_id"))?
+            .ok_or_else(|| de::Error::custom("malformed address: missing device_id"))?
             .parse()
             .map_err(|_e| de::Error::custom("device_id must be integer"))?;
         let group_id = sender_key_name
             .next()
-            .ok_or(de::Error::custom("malformed address: missing group_id"))?;
+            .ok_or_else(|| de::Error::custom("malformed address: missing group_id"))?;
 
         if sender_key_name.next().is_some() {
             return Err(de::Error::custom(

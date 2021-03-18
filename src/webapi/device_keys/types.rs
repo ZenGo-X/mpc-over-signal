@@ -17,10 +17,10 @@ pub struct SubmitDevicePublicKeys {
 impl From<&DeviceKeys> for SubmitDevicePublicKeys {
     fn from(private_keys: &DeviceKeys) -> Self {
         Self {
-            identity_key: private_keys.identity_key_pair.identity_key().clone(),
+            identity_key: *private_keys.identity_key_pair.identity_key(),
             signed_pre_key: SignedPublicPreKey {
                 key_id: private_keys.signed_pre_key.id,
-                public_key: private_keys.signed_pre_key.key_pair.public_key.clone(),
+                public_key: private_keys.signed_pre_key.key_pair.public_key,
                 signature: private_keys.signed_pre_key.signature.clone(),
             },
             pre_keys: private_keys
@@ -28,7 +28,7 @@ impl From<&DeviceKeys> for SubmitDevicePublicKeys {
                 .iter()
                 .map(|k| PublicPreKey {
                     key_id: k.id,
-                    public_key: k.key_pair.public_key.clone(),
+                    public_key: k.key_pair.public_key,
                 })
                 .collect(),
         }

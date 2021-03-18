@@ -26,7 +26,7 @@ pub struct DeviceIdentityKeyStore<'d> {
 #[async_trait(?Send)]
 impl<'a> IdentityKeyStore for DeviceIdentityKeyStore<'a> {
     async fn get_identity_key_pair(&self, _ctx: Context) -> Result<IdentityKeyPair> {
-        Ok(self.identity_key_pair.clone())
+        Ok(*self.identity_key_pair)
     }
 
     async fn get_local_registration_id(&self, _ctx: Context) -> Result<u32> {
@@ -186,12 +186,14 @@ impl<'d> SignedPreKeyStore for DeviceSignedPreKeyStore<'d> {
         }
 
         let timestamp = Duration::from_secs(timestamp);
-        let created = SystemTime::UNIX_EPOCH.checked_add(timestamp).ok_or(
-            SignalProtocolError::ApplicationCallbackError(
-                "save_signed_pre_key",
-                Box::new(DeviceError::InvalidTimestamp),
-            ),
-        )?;
+        let created = SystemTime::UNIX_EPOCH
+            .checked_add(timestamp)
+            .ok_or_else(|| {
+                SignalProtocolError::ApplicationCallbackError(
+                    "save_signed_pre_key",
+                    Box::new(DeviceError::InvalidTimestamp),
+                )
+            })?;
 
         let key = SignedPreKey {
             id,

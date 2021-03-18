@@ -7,8 +7,7 @@ use rand::{CryptoRng, Rng};
 use libsignal_protocol::error::Result;
 use libsignal_protocol::{
     message_decrypt_prekey, message_decrypt_signal, message_encrypt, process_prekey_bundle,
-    CiphertextMessage, PreKeyBundle,
-    PreKeySignalMessage, ProtocolAddress, SignalMessage,
+    CiphertextMessage, PreKeyBundle, PreKeySignalMessage, ProtocolAddress, SignalMessage,
 };
 use libsignal_protocol::{
     IdentityKeyStore, PreKeyStore, SenderKeyStore, SessionStore, SignedPreKeyStore,

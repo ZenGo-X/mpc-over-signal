@@ -22,6 +22,8 @@ pub enum Cmd {
 
 #[derive(Debug, StructOpt)]
 pub struct Login {
+    #[structopt(long, default_value = "MPC-over-Signal device")]
+    pub device_name: String,
     /// A successful login will produce keys file containing sensitive information that should be
     /// kept in secret! File will include: identity secret key, encryption/decryption keys, etc.
     #[structopt(long, default_value = "secret-keys.json")]

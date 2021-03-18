@@ -1,98 +1,83 @@
 use awc::Client;
 
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{Context, Result};
+use async_trait::async_trait;
 
-use awc::ws::{Frame, Message};
 use futures::channel::mpsc::Sender;
-use futures::{SinkExt, StreamExt};
+use futures::SinkExt;
 use prost::Message as _;
 
 use crate::device::DeviceCreds;
 use crate::proto;
-use crate::proto::web_socket_message::Type;
+use crate::webapi::sub_protocol::{RequestHandler, SubProtocol, SubProtocolCtx};
 
 pub async fn receive_messages(
     client: &Client,
     creds: &DeviceCreds,
-    mut messages: Sender<proto::Envelope>,
+    messages: Sender<proto::Envelope>,
 ) -> Result<()> {
-    // Connect to provisioning API
-    let (_resp, mut conn) = client
-        .ws(format!("wss://textsecure-service.whispersystems.org/v1/websocket/?login={}&password={}&agent=mpc-over-signal&version=0.1",
+    SubProtocol::connect(
+        client,
+        format!("wss://textsecure-service.whispersystems.org/v1/websocket/?login={}&password={}&agent=mpc-over-signal&version=0.1",
             creds.login(),
             creds.password(),
-        ))
-        .connect()
+        ),
+        "/v1/keepalive",
+        Handler{ messages }
+    )
         .await
-        .map_err(|e| anyhow!("connecting to Signal Provisioning API: {:?}", e))?;
+}
 
-    loop {
-        // Receive provisioning address
-        let msg = conn
-            .next()
-            .await
-            .context("receiving address")?
-            .context("receiving address")?;
-        let msg = match msg {
-            Frame::Binary(msg) => msg,
-            _ => bail!("unexpected msg: {:?}", msg),
-        };
+struct Handler {
+    messages: Sender<proto::Envelope>,
+}
 
-        let req = proto::WebSocketMessage::decode(msg.as_ref()).context("parse address req")?;
-        ensure!(
-            req.r#type() == Type::Request,
-            "expected to receive request, received {:?}",
-            req.r#type()
-        );
-        ensure!(req.request.is_some(), "missing request body");
-
-        let req = req.request.expect("guaranteed by ensure! above");
-        let req_id = req.id;
+#[async_trait]
+impl RequestHandler for Handler {
+    async fn handle_request(
+        &mut self,
+        req: proto::WebSocketRequestMessage,
+        _ctx: &mut SubProtocolCtx,
+    ) -> Result<proto::WebSocketResponseMessage> {
         if !(req.verb() == "PUT" && req.path() == "/api/v1/message") {
-            // TODO: implement handling of other requests
-            eprintln!(
-                "Received {} {} that cannot be handled (not implemented)",
-                req.verb(),
-                req.path()
-            );
-            continue;
+            return Ok(proto::WebSocketResponseMessage {
+                id: req.id,
+                status: Some(200),
+                message: Some("OK".into()),
+                headers: vec![],
+                body: None,
+            });
         }
 
         if req
             .headers
             .iter()
-            .find(|h| h.as_str() == "X-Signal-Key: true")
-            .is_some()
+            .any(|h| h.as_str() == "X-Signal-Key: true")
         {
             // TODO: implement signalling decryption
             eprintln!("Signalling message is encrypted, decryption is not implemented!");
-            continue;
+            return Ok(proto::WebSocketResponseMessage {
+                id: req.id,
+                status: Some(500),
+                message: Some("Internal Error".into()),
+                headers: vec![],
+                body: None,
+            });
         }
 
         let msg = proto::Envelope::decode(req.body()).context("parse Envelope message")?;
 
-        messages
+        self.messages
             .send(msg)
             .await
             .context("message receiving stopped")?;
 
-        // Inform server that message is received
-        // TODO: inform server when message is not handled
-        let resp = proto::WebSocketMessage {
-            r#type: Some(Type::Response as _),
-            request: None,
-            response: Some(proto::WebSocketResponseMessage {
-                id: req_id,
-                status: Some(200),
-                message: Some("OK".into()),
-                headers: vec![],
-                body: None,
-            }),
-        };
-        let mut resp_bytes: Vec<u8> = vec![];
-        resp.encode(&mut resp_bytes).context("encode response")?;
-        conn.send(Message::Binary(resp_bytes.into()))
-            .await
-            .context("send response")?;
+        Ok(proto::WebSocketResponseMessage {
+            id: req.id,
+            status: Some(200),
+            message: Some("OK".into()),
+            headers: vec![],
+            body: None,
+        })
     }
 }

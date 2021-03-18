@@ -4,6 +4,7 @@ mod device_keys;
 mod link_device;
 mod receive_messages;
 mod send_messages;
+mod sub_protocol;
 mod whoami;
 
 pub use client::*;

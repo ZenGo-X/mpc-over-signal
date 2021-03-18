@@ -5,7 +5,6 @@ use anyhow::{anyhow, bail, Context, Result};
 use rand::rngs::OsRng;
 use structopt::StructOpt;
 
-use actix::utils::Condition;
 use futures::channel::{mpsc, oneshot};
 use futures::StreamExt;
 use tokio::fs::OpenOptions;
@@ -49,8 +48,7 @@ async fn login(args: cli::Login) -> Result<()> {
     let client = webapi::default_http_client().context("construct default http client")?;
     let client = &client;
 
-    let mut provisioning_url_event = Condition::default();
-    let provisioning_url = provisioning_url_event.wait();
+    let (provisioning_url_event, provisioning_url) = oneshot::channel();
     let (provisioning_msg_event, provisioning_msg) = oneshot::channel();
 
     println!("Establishing provisioning channel...");
@@ -65,9 +63,15 @@ async fn login(args: cli::Login) -> Result<()> {
         );
     });
 
-    let provisioning_url = provisioning_url
-        .await
-        .context("obtaining provisioning url")?;
+    let provisioning_url = match provisioning_url.await {
+        Ok(u) => u,
+        Err(_) => {
+            let _ = provisioning_msg
+                .await
+                .context("obtaining provisioning message")??;
+            bail!("Received provision msg though provision url is not received")
+        }
+    };
 
     println!();
     println!("To continue, scan following QR code using Signal app on your phone.");
@@ -84,14 +88,9 @@ async fn login(args: cli::Login) -> Result<()> {
     println!("Received provisioning message: {:#?}", provisioning_msg);
     println!("Registering device...");
 
-    let creds = webapi::create_device(
-        rnd,
-        client,
-        &provisioning_msg,
-        "MPC-over-Signal device".into(),
-    )
-    .await
-    .context("register device")?;
+    let creds = webapi::create_device(rnd, client, &provisioning_msg, args.device_name)
+        .await
+        .context("register device")?;
 
     println!("Created device: {:#?}", creds);
     println!("Generating device keys...");
@@ -195,11 +194,8 @@ async fn send_message(args: cli::SendMessage) -> Result<()> {
                 .message_encrypt(&remote_address, args.message.as_bytes())
                 .await
                 .map_err(|e| anyhow!("failed to encrypt a message: {}", e))?;
-            match &c {
-                CiphertextMessage::PreKeySignalMessage(m) => {
-                    println!("registration_id: {}", m.registration_id())
-                }
-                _ => (),
+            if let CiphertextMessage::PreKeySignalMessage(m) = &c {
+                println!("registration_id: {}", m.registration_id())
             }
             c
         }

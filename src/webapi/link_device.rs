@@ -1,12 +1,11 @@
 use std::fmt;
 
-use actix::utils::Condition;
-use awc::ws::{Frame, Message};
 use awc::Client;
-use futures::{SinkExt, StreamExt};
+use futures::channel::oneshot;
 use prost::Message as _;
 
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{anyhow, Context, Result};
+use async_trait::async_trait;
 use derivative::Derivative;
 use rand::{CryptoRng, Rng};
 
@@ -14,7 +13,7 @@ mod provision_cipher;
 use provision_cipher::ProvisionCipher;
 
 use crate::proto;
-use crate::proto::web_socket_message::Type;
+use crate::webapi::sub_protocol::{RequestHandler, SubProtocol, SubProtocolCtx};
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -42,125 +41,79 @@ impl fmt::Display for ProvisioningUrl {
 pub async fn link_device<R: Rng + CryptoRng>(
     rnd: &mut R,
     client: &Client,
-    provisioning_url: Condition<ProvisioningUrl>,
+    provisioning_url: oneshot::Sender<ProvisioningUrl>,
 ) -> Result<DecryptedProvision> {
     // Generate provision cipher
     let provision_cipher = ProvisionCipher::generate(rnd);
 
     // Connect to provisioning API
-    let (_resp, mut conn) = client
-        .ws("wss://textsecure-service.whispersystems.org/v1/websocket/provisioning/?agent=mpc-over-signal&version=0.1")
-        .connect()
-        .await
-        .map_err(|e| anyhow!("connecting to Signal Provisioning API: {:?}", e))?;
+    let (provision_msg_tx, mut provision_msg) = oneshot::channel();
+    let provisioning_url = Some(provisioning_url);
+    SubProtocol::connect(
+        client,
+        "wss://textsecure-service.whispersystems.org/v1/websocket/provisioning/?agent=mpc-over-signal&version=0.1",
+        "/v1/keepalive/provisioning",
+        Handler{ provisioning_url, provision_cipher, provision_msg: Some(provision_msg_tx) }
+    )
+        .await?;
 
-    // Receive provisioning address
-    let msg = conn
-        .next()
-        .await
-        .context("receiving address")?
-        .context("receiving address")?;
-    let msg = match msg {
-        Frame::Binary(msg) => msg,
-        _ => bail!("unexpected msg: {:?}", msg),
-    };
+    provision_msg
+        .try_recv()
+        .context("receive provision msg has been canceled")?
+        .ok_or_else(|| anyhow!("provision message must be here at this point"))
+}
 
-    let req = proto::WebSocketMessage::decode(msg.as_ref()).context("parse address req")?;
-    ensure!(
-        req.r#type() == Type::Request,
-        "expected to receive request, received {:?}",
-        req.r#type()
-    );
-    ensure!(req.request.is_some(), "missing request body");
+pub struct Handler {
+    provisioning_url: Option<oneshot::Sender<ProvisioningUrl>>,
+    provision_cipher: ProvisionCipher,
+    provision_msg: Option<oneshot::Sender<DecryptedProvision>>,
+}
 
-    let req = req.request.expect("guaranteed by ensure! above");
-    let req_id = req.id;
-    ensure!(
-        req.verb() == "PUT" && req.path() == "/v1/address",
-        "expected PUT /v1/address request, received {} {}",
-        req.verb(),
-        req.path(),
-    );
-
-    let req = proto::ProvisioningUuid::decode(req.body()).context("parse request body")?;
-    let signal_provisioning_url = format!(
-        "tsdevice:/?uuid={}&pub_key={}",
-        req.uuid(),
-        urlencoding::encode(&base64::encode(&provision_cipher.public_key()))
-    );
-
-    let resp = proto::WebSocketMessage {
-        r#type: Some(Type::Response as _),
-        request: None,
-        response: Some(proto::WebSocketResponseMessage {
-            id: req_id,
+#[async_trait]
+impl RequestHandler for Handler {
+    async fn handle_request(
+        &mut self,
+        req: proto::WebSocketRequestMessage,
+        ctx: &mut SubProtocolCtx,
+    ) -> Result<proto::WebSocketResponseMessage> {
+        if req.verb() == "PUT" && req.path() == "/v1/address" {
+            let req = proto::ProvisioningUuid::decode(req.body()).context("parse request body")?;
+            let signal_provisioning_url = format!(
+                "tsdevice:/?uuid={}&pub_key={}",
+                req.uuid(),
+                urlencoding::encode(&base64::encode(self.provision_cipher.public_key()))
+            );
+            if let Some(provisioning_url) = self.provisioning_url.take() {
+                provisioning_url
+                    .send(ProvisioningUrl(signal_provisioning_url))
+                    .map_err(|_| anyhow!("cannot send provisioning url: oneshot is canceled"))?
+            }
+        } else if req.verb() == "PUT" && req.path() == "/v1/message" {
+            let req = proto::ProvisionEnvelope::decode(req.body()).context("parse request body")?;
+            let mut msg = self.provision_cipher.decrypt(req)?;
+            msg.uuid.make_ascii_lowercase();
+            if let Some(provision_msg) = self.provision_msg.take() {
+                provision_msg
+                    .send(msg)
+                    .map_err(|_| anyhow!("cannot send provisioning url: oneshot is canceled"))?
+            }
+            ctx.terminate();
+        } else {
+            eprintln!("Received unexpected request {} {}", req.verb(), req.path());
+            return Ok(proto::WebSocketResponseMessage {
+                id: None,
+                status: Some(404),
+                message: Some("Not Found".into()),
+                headers: vec![],
+                body: None,
+            });
+        }
+        Ok(proto::WebSocketResponseMessage {
+            id: None,
             status: Some(200),
             message: Some("OK".into()),
             headers: vec![],
             body: None,
-        }),
-    };
-    let mut resp_bytes: Vec<u8> = vec![];
-    resp.encode(&mut resp_bytes).context("encode response")?;
-    conn.send(Message::Binary(resp_bytes.into()))
-        .await
-        .context("send response")?;
-
-    // Display provisioning url
-    provisioning_url.set(ProvisioningUrl(signal_provisioning_url));
-
-    // Receive provisioning message
-    let msg = conn
-        .next()
-        .await
-        .context("receiving provisioning message")?
-        .context("receiving provisioning message")?;
-    let msg = match msg {
-        Frame::Binary(msg) => msg,
-        _ => bail!("unexpected msg: {:?}", msg),
-    };
-
-    let req = proto::WebSocketMessage::decode(msg.as_ref()).context("parse address req")?;
-    ensure!(
-        req.r#type() == Type::Request,
-        "expected to receive request, received {:?}",
-        req.r#type()
-    );
-    ensure!(req.request.is_some(), "missing request body");
-
-    let req = req.request.expect("guaranteed by ensure! above");
-    let req_id = req.id;
-    ensure!(
-        req.verb() == "PUT" && req.path() == "/v1/message",
-        "expected PUT /v1/message request, received {} {}",
-        req.verb(),
-        req.path(),
-    );
-
-    let req = proto::ProvisionEnvelope::decode(req.body()).context("parse request body")?;
-
-    let resp = proto::WebSocketMessage {
-        r#type: Some(Type::Response as _),
-        request: None,
-        response: Some(proto::WebSocketResponseMessage {
-            id: req_id,
-            status: Some(200),
-            message: Some("OK".into()),
-            headers: vec![],
-            body: None,
-        }),
-    };
-    let mut resp_bytes: Vec<u8> = vec![];
-    resp.encode(&mut resp_bytes).context("encode response")?;
-    conn.send(Message::Binary(resp_bytes.into()))
-        .await
-        .context("send response")?;
-    SinkExt::close(&mut conn)
-        .await
-        .context("close provision connection")?;
-
-    let mut provision_msg = provision_cipher.decrypt(req)?;
-    provision_msg.uuid.make_ascii_lowercase();
-
-    Ok(provision_msg)
+        })
+    }
 }

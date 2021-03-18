@@ -1011,6 +1011,7 @@ name = "mpc-over-signal"
 version = "0.1.0"
 dependencies = [
  "actix",
+ "actix-codec",
  "actix-http",
  "actix-rt",
  "aes",
@@ -1034,6 +1035,7 @@ dependencies = [
  "structopt",
  "thiserror",
  "tokio",
+ "tokio-util",
  "urlencoding",
 ]
 
