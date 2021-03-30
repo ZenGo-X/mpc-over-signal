@@ -2,6 +2,8 @@
 
 use std::convert::{TryFrom, TryInto};
 
+use serde::{Deserialize, Serialize};
+
 mod actors;
 mod device;
 mod helpers;
@@ -54,8 +56,10 @@ impl Group {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct ParticipantIdentity {
+    #[serde(with = "crate::helpers::serde::protocol_address")]
     pub addr: libsignal_protocol::ProtocolAddress,
+    #[serde(with = "crate::helpers::serde::identity_key")]
     pub public_key: libsignal_protocol::IdentityKey,
 }

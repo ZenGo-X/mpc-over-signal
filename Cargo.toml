@@ -2,4 +2,5 @@
 
 members = [
     "mpc-over-signal",
+    "demo",
 ]

@@ -24,6 +24,7 @@ use round_based::Msg;
 use crate::device::{DeviceCreds, DeviceKeys, DeviceStore};
 use crate::webapi::{ProvisioningUrl, WebAPIClient};
 use crate::{actors, proto, Device, Group};
+use std::iter;
 
 pub struct SignalClient {
     webapi_client: WebAPIClient,
@@ -87,7 +88,10 @@ impl SignalClientBuilder {
         })
     }
 
-    pub fn set_server_host(&mut self, host: String) -> Result<&mut Self> {
+    pub fn set_server_host(&mut self, mut host: String) -> Result<&mut Self> {
+        if host.ends_with('/') {
+            host.pop();
+        }
         self.webapi_client.server_host = host;
         Ok(self)
     }
@@ -184,16 +188,22 @@ impl SignalClientConnected {
 
         let outgoing = outgoing
             .with_flat_map(move |(recipient, serialized): (Option<u16>, Box<[u8]>)| {
-                let range = if let Some(i) = recipient {
-                    i..=i
+                let range: Box<dyn Iterator<Item = u16>> = if let Some(i) = recipient {
+                    Box::new(iter::once(i))
                 } else {
-                    1..=parties
+                    Box::new((1..=parties).filter(move |&i| i != me_ind))
                 };
                 let messages_to_send = range.map(move |i| (i, serialized.clone()));
                 stream::iter(messages_to_send.map(Ok))
             })
             .with(move |msg: Msg<T>| {
                 Box::pin(async move {
+                    event!(
+                        Level::TRACE,
+                        from = msg.sender,
+                        to = ?msg.receiver,
+                        "send message"
+                    );
                     let recipient = msg.receiver;
                     let mut serialized = computation_id.to_vec();
                     serde_json::to_writer(&mut serialized, &msg).context("serialize msg")?;
@@ -324,7 +334,7 @@ impl SignalClientConnected {
 
         let csprng = &mut OsRng;
         while let Some((remote_address, plaintext, _permit)) = messages.next().await {
-            event!(Level::TRACE, sender = %remote_address, "got message to send");
+            event!(Level::TRACE, recipient = %remote_address, "got message to send");
 
             let mut device = device_secrets.write().await;
             let me = device.me();
