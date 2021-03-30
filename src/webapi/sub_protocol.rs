@@ -95,14 +95,10 @@ impl SubProtocol {
         let local = tokio::task::LocalSet::new();
         local
             .run_until(async {
-                let keepalive_handle = tokio::task::spawn_local(run_keepalive(
+                tokio::task::spawn_local(run_keepalive(
                     sub_protocol.clone(),
                     keepalive_path.into(),
                 ));
-                let _guard = AbortHandleOnDrop {
-                    handle: keepalive_handle,
-                };
-
                 process_incoming(sub_protocol, input, handler).await
             })
             .await?;
@@ -224,16 +220,6 @@ where
         .context("send response")?;
 
     Ok(())
-}
-
-struct AbortHandleOnDrop<T> {
-    handle: tokio::task::JoinHandle<T>,
-}
-
-impl<T> Drop for AbortHandleOnDrop<T> {
-    fn drop(&mut self) {
-        self.handle.abort()
-    }
 }
 
 #[async_trait]

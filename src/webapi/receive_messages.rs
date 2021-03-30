@@ -1,5 +1,3 @@
-use awc::Client;
-
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 
@@ -11,21 +9,27 @@ use crate::device::DeviceCreds;
 use crate::proto;
 use crate::webapi::sub_protocol::{RequestHandler, SubProtocol, SubProtocolCtx};
 
-pub async fn receive_messages(
-    client: &Client,
-    creds: &DeviceCreds,
-    messages: Sender<proto::Envelope>,
-) -> Result<()> {
-    SubProtocol::connect(
-        client,
-        format!("wss://textsecure-service.whispersystems.org/v1/websocket/?login={}&password={}&agent=mpc-over-signal&version=0.1",
-            creds.login(),
-            creds.password(),
-        ),
-        "/v1/keepalive",
-        Handler{ messages }
-    )
+use super::WebAPIClient;
+
+impl WebAPIClient {
+    pub async fn receive_messages(
+        &self,
+        creds: &DeviceCreds,
+        messages: Sender<proto::Envelope>,
+    ) -> Result<()> {
+        SubProtocol::connect(
+            &self.http_client,
+            format!(
+                "{}/v1/websocket/?login={}&password={}&agent=mpc-over-signal&version=0.1",
+                self.ws_host(),
+                creds.login(),
+                creds.password(),
+            ),
+            "/v1/keepalive",
+            Handler { messages },
+        )
         .await
+    }
 }
 
 struct Handler {

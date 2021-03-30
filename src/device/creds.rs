@@ -3,7 +3,7 @@ use std::fmt;
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Derivative)]
+#[derive(Serialize, Deserialize, Derivative, Clone)]
 #[derivative(Debug)]
 pub struct DeviceCreds {
     pub username: Username,
@@ -32,7 +32,7 @@ impl DeviceCreds {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Username {
     pub name: String,
     pub device_id: u32,

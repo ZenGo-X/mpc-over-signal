@@ -5,8 +5,8 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
 use libsignal_protocol::{
-    IdentityKey, IdentityKeyPair, KeyPair, PreKeyRecord, ProtocolAddress, SenderKeyName,
-    SenderKeyRecord, SessionRecord,
+    IdentityKeyPair, KeyPair, PreKeyRecord, ProtocolAddress, SenderKeyName, SenderKeyRecord,
+    SessionRecord,
 };
 
 use crate::helpers::serde as serde_helpers;
@@ -18,10 +18,6 @@ pub struct DeviceKeys {
     pub signed_pre_key: SignedPreKey,
     pub pre_keys: Vec<PreKey>,
 
-    #[serde(
-        with = "serde_helpers::hash_map::UsingWrappers::<serde_helpers::protocol_address::Wrapper, serde_helpers::identity_key::Wrapper>"
-    )]
-    pub trusted_keys: HashMap<ProtocolAddress, IdentityKey>,
     pub old_signed_prekeys: Vec<SignedPreKey>,
     #[serde(
         with = "serde_helpers::hash_map::UsingWrappers::<serde_helpers::protocol_address::Wrapper, serde_helpers::session_record::Wrapper>"
@@ -97,7 +93,6 @@ impl DeviceKeys {
             identity_key_pair,
             signed_pre_key,
             pre_keys,
-            trusted_keys: Default::default(),
             old_signed_prekeys: Default::default(),
             sessions: Default::default(),
             sender_keys: Default::default(),

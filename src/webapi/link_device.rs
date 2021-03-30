@@ -1,12 +1,12 @@
 use std::fmt;
 
-use awc::Client;
-use futures::channel::oneshot;
-use prost::Message as _;
-
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use derivative::Derivative;
+
+use futures::channel::oneshot;
+use prost::Message as _;
+
 use rand::{CryptoRng, Rng};
 
 mod provision_cipher;
@@ -14,6 +14,8 @@ use provision_cipher::ProvisionCipher;
 
 use crate::proto;
 use crate::webapi::sub_protocol::{RequestHandler, SubProtocol, SubProtocolCtx};
+
+use super::WebAPIClient;
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -38,29 +40,38 @@ impl fmt::Display for ProvisioningUrl {
     }
 }
 
-pub async fn link_device<R: Rng + CryptoRng>(
-    rnd: &mut R,
-    client: &Client,
-    provisioning_url: oneshot::Sender<ProvisioningUrl>,
-) -> Result<DecryptedProvision> {
-    // Generate provision cipher
-    let provision_cipher = ProvisionCipher::generate(rnd);
+impl WebAPIClient {
+    pub async fn link_device<R: Rng + CryptoRng>(
+        &self,
+        rnd: &mut R,
+        provisioning_url: oneshot::Sender<ProvisioningUrl>,
+    ) -> Result<DecryptedProvision> {
+        // Generate provision cipher
+        let provision_cipher = ProvisionCipher::generate(rnd);
 
-    // Connect to provisioning API
-    let (provision_msg_tx, mut provision_msg) = oneshot::channel();
-    let provisioning_url = Some(provisioning_url);
-    SubProtocol::connect(
-        client,
-        "wss://textsecure-service.whispersystems.org/v1/websocket/provisioning/?agent=mpc-over-signal&version=0.1",
-        "/v1/keepalive/provisioning",
-        Handler{ provisioning_url, provision_cipher, provision_msg: Some(provision_msg_tx) }
-    )
+        // Connect to provisioning API
+        let (provision_msg_tx, mut provision_msg) = oneshot::channel();
+        let provisioning_url = Some(provisioning_url);
+        SubProtocol::connect(
+            &self.http_client,
+            format!(
+                "{}/v1/websocket/provisioning/?agent=mpc-over-signal&version=0.1",
+                self.ws_host()
+            ),
+            "/v1/keepalive/provisioning",
+            Handler {
+                provisioning_url,
+                provision_cipher,
+                provision_msg: Some(provision_msg_tx),
+            },
+        )
         .await?;
 
-    provision_msg
-        .try_recv()
-        .context("receive provision msg has been canceled")?
-        .ok_or_else(|| anyhow!("provision message must be here at this point"))
+        provision_msg
+            .try_recv()
+            .context("receive provision msg has been canceled")?
+            .ok_or_else(|| anyhow!("provision message must be here at this point"))
+    }
 }
 
 pub struct Handler {

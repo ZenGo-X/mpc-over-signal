@@ -1,40 +1,96 @@
-use std::time::Duration;
+use std::collections::HashMap;
 
+use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
-
-use rand::{CryptoRng, Rng};
 
 use libsignal_protocol::error::Result;
 use libsignal_protocol::{
     message_decrypt_prekey, message_decrypt_signal, message_encrypt, process_prekey_bundle,
-    CiphertextMessage, PreKeyBundle, PreKeySignalMessage, ProtocolAddress, SignalMessage,
+    CiphertextMessage, IdentityKey, PreKeyBundle, PreKeySignalMessage, ProtocolAddress,
+    SignalMessage,
 };
 use libsignal_protocol::{
     IdentityKeyStore, PreKeyStore, SenderKeyStore, SessionStore, SignedPreKeyStore,
 };
+use rand::{CryptoRng, Rng};
 
 mod creds;
+mod device_store;
 mod keys;
 mod stores;
 
 pub use creds::{DeviceAuth, DeviceCreds, Username};
+pub use device_store::DeviceStore;
 pub use keys::{DeviceKeys, PreKey, SignedPreKey};
+
+use crate::helpers::serde as serde_helpers;
+use crate::{Group, ParticipantIdentity};
 
 #[derive(Serialize, Deserialize)]
 pub struct Device {
-    pub creds: DeviceCreds,
+    pub(crate) creds: DeviceCreds,
     #[serde(flatten)]
-    pub keys: DeviceKeys,
+    keys: DeviceKeys,
+    #[serde(
+        with = "serde_helpers::hash_map::UsingWrappers::<serde_helpers::protocol_address::Wrapper, serde_helpers::identity_key::Wrapper>"
+    )]
+    trusted_parties: HashMap<ProtocolAddress, IdentityKey>,
 }
 
 impl Device {
-    pub fn new(creds: DeviceCreds, keys: DeviceKeys) -> Self {
-        Self { creds, keys }
+    pub(crate) fn new(creds: DeviceCreds, keys: DeviceKeys) -> Self {
+        Self {
+            creds,
+            keys,
+            trusted_parties: Default::default(),
+        }
     }
 
-    #[allow(dead_code)]
-    pub fn clean_signed_pre_keys_older_than(&mut self, _age: Duration) {
-        todo!()
+    pub fn trust_to(&mut self, group: &Group) -> anyhow::Result<()> {
+        for party in &group.participants {
+            if party == &self.me() {
+                continue;
+            }
+            if let Some(existing) = self.trusted_parties.get(&party.addr) {
+                if existing != &party.public_key {
+                    bail!(
+                        "party {} already in list of trusted with different public key",
+                        party.addr
+                    );
+                }
+            }
+        }
+
+        for party in &group.participants {
+            if party == &self.me() {
+                continue;
+            }
+            let _ = self
+                .trusted_parties
+                .insert(party.addr.clone(), party.public_key);
+        }
+        Ok(())
+    }
+
+    pub fn is_known_party(&self, address: &ProtocolAddress) -> bool {
+        self.trusted_parties.contains_key(address)
+    }
+
+    pub fn is_trusted_party(&self, address: &ProtocolAddress, public_key: &IdentityKey) -> bool {
+        self.trusted_parties
+            .get(address)
+            .map(|k| k == public_key)
+            .unwrap_or(false)
+    }
+
+    pub fn me(&self) -> ParticipantIdentity {
+        ParticipantIdentity {
+            addr: ProtocolAddress::new(
+                self.creds.username.name.clone(),
+                self.creds.username.device_id,
+            ),
+            public_key: *self.keys.identity_key_pair.identity_key(),
+        }
     }
 
     // Make it public?
@@ -51,7 +107,7 @@ impl Device {
             stores::DeviceIdentityKeyStore {
                 identity_key_pair: &self.keys.identity_key_pair,
                 local_registration_id: self.creds.registration_id,
-                trusted_keys: &mut self.keys.trusted_keys,
+                trusted_keys: &mut self.trusted_parties,
             },
             stores::DevicePreKeyStore {
                 pre_keys: &mut self.keys.pre_keys,
@@ -83,6 +139,25 @@ impl Device {
             None,
         )
         .await
+    }
+
+    pub async fn message_decrypt<R: Rng + CryptoRng>(
+        &mut self,
+        csprng: &mut R,
+        remote_address: &ProtocolAddress,
+        ciphertext: &CiphertextMessage,
+    ) -> anyhow::Result<Vec<u8>> {
+        match ciphertext {
+            CiphertextMessage::SignalMessage(msg) => self
+                .message_decrypt_signal(csprng, remote_address, msg)
+                .await
+                .map_err(|e| anyhow!("{}", e)),
+            CiphertextMessage::PreKeySignalMessage(msg) => self
+                .message_decrypt_prekey(csprng, remote_address, msg)
+                .await
+                .map_err(|e| anyhow!("{}", e)),
+            _ => bail!("unexpected cipher message"),
+        }
     }
 
     pub async fn message_decrypt_prekey<R: Rng + CryptoRng>(
@@ -146,4 +221,9 @@ impl Device {
         )
         .await
     }
+
+    // TODO: implement clean_signed_pre_keys_older_than
+    // pub fn clean_signed_pre_keys_older_than(&mut self, _age: Duration) {
+    //
+    // }
 }
