@@ -1,7 +1,10 @@
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{self, Poll};
-use std::time::Duration;
+use std::{
+    iter,
+    pin::Pin,
+    sync::Arc,
+    task::{self, Poll},
+    time::Duration,
+};
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::de::DeserializeOwned;
@@ -24,7 +27,8 @@ use round_based::Msg;
 use crate::device::{DeviceCreds, DeviceKeys, DeviceStore};
 use crate::webapi::{ProvisioningUrl, WebAPIClient};
 use crate::{actors, proto, Device, Group};
-use std::iter;
+
+static MPC_MESSAGE_TAG: &[u8] = b"MPC_OVER_SIGNAL_MESSAGE:";
 
 pub struct SignalClient {
     webapi_client: WebAPIClient,
@@ -205,6 +209,7 @@ impl SignalClientConnected {
                         "send message"
                     );
                     let recipient = msg.receiver;
+
                     let mut serialized = computation_id.to_vec();
                     serde_json::to_writer(&mut serialized, &msg).context("serialize msg")?;
                     Ok((recipient, serialized.into_boxed_slice()))
@@ -305,7 +310,22 @@ impl SignalClientConnected {
         mut from: mpsc::Receiver<proto::Envelope>,
         to: actix::Addr<actors::TransportWorker>,
     ) {
-        while let Some(msg) = from.next().await {
+        while let Some(mut msg) = from.next().await {
+            if msg.content.is_none() {
+                event!(Level::WARN, sender = %msg.source_uuid(), "type" = ?msg.r#type(), "received legacy message (no content field), ignore it");
+                continue;
+            }
+            let ciphertext = match Self::untag(
+                msg.content.expect("guaranteed by if statement above"),
+            ) {
+                Some(c) => c,
+                None => {
+                    event!(Level::WARN, sender = ?msg.source_uuid, "type" = ?msg.r#type, "received non-mpc message, ignore it");
+                    continue;
+                }
+            };
+            msg.content = Some(ciphertext);
+
             event!(Level::TRACE, sender = %msg.source_uuid(), "received message, forwarding it to TransportWorker");
             if let Err(e) = to.send(actors::ReceivedMessage(msg)).await {
                 event!(
@@ -402,7 +422,7 @@ impl SignalClientConnected {
                     &remote_address,
                     remote_registration_id,
                     exclude_device_id,
-                    c.serialize(),
+                    Self::put_tag(c.serialize()),
                 )
                 .await
                 .context("send message")?;
@@ -411,6 +431,28 @@ impl SignalClientConnected {
         Err(anyhow!(
             "Sending messages stopped as there's no one left who can send a message"
         ))
+    }
+
+    fn put_tag(ciphertext: &[u8]) -> Box<[u8]> {
+        let mut ciphertext = ciphertext.to_vec();
+        let ciphertext_len = ciphertext.len();
+        let tag_len = MPC_MESSAGE_TAG.len();
+        ciphertext.resize(ciphertext_len + tag_len, 0);
+        ciphertext.copy_within(0..ciphertext_len, tag_len);
+        (&mut ciphertext[0..tag_len]).copy_from_slice(&MPC_MESSAGE_TAG[..]);
+
+        ciphertext.into()
+    }
+
+    fn untag(mut ciphertext: Vec<u8>) -> Option<Vec<u8>> {
+        if ciphertext.len() >= MPC_MESSAGE_TAG.len()
+            && &ciphertext[..MPC_MESSAGE_TAG.len()] == MPC_MESSAGE_TAG
+        {
+            ciphertext.drain(..MPC_MESSAGE_TAG.len());
+            Some(ciphertext)
+        } else {
+            None
+        }
     }
 }
 
