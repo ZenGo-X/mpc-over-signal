@@ -21,8 +21,10 @@ use cli::Cmd;
 
 #[actix::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
     let args: cli::App = StructOpt::from_args();
+    if args.debug {
+        tracing_subscriber::fmt::init();
+    }
     match args.command {
         Cmd::Login(args) => login(args).await,
         Cmd::Me(args) => me(args).await,

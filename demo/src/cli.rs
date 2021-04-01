@@ -5,6 +5,8 @@ use structopt::StructOpt;
 #[derive(StructOpt, Debug)]
 /// Demo CLI
 pub struct App {
+    #[structopt(long)]
+    pub debug: bool,
     #[structopt(subcommand)]
     pub command: Cmd,
 }
