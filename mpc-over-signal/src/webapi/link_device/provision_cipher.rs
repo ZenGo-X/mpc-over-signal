@@ -81,12 +81,12 @@ impl ProvisionCipher {
 
         Ok(DecryptedProvision {
             identity_key_pair,
-            number: msg.number.unwrap_or_default(),
             provisioning_code: msg.provisioning_code.unwrap_or_default(),
             user_agent: msg.user_agent.unwrap_or_default(),
             read_receipts: msg.read_receipts.unwrap_or_default(),
             profile_key: msg.profile_key,
             uuid: msg.uuid.unwrap_or_default(),
+            number: msg.number.unwrap_or_default(),
         })
     }
 }

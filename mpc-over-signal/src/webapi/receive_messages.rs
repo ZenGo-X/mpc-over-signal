@@ -69,7 +69,9 @@ impl RequestHandler for Handler {
             });
         }
 
-        let msg = proto::Envelope::decode(req.body()).context("parse Envelope message")?;
+        let mut msg = proto::Envelope::decode(req.body()).context("parse Envelope message")?;
+        // Shadow sender's phone number
+        msg.source = None;
 
         self.messages
             .send(msg)

@@ -22,8 +22,8 @@ use super::WebAPIClient;
 pub struct DecryptedProvision {
     #[derivative(Debug(format_with = "crate::helpers::fmt::hide_content"))]
     pub identity_key_pair: libsignal_protocol::IdentityKeyPair,
-    pub number: String,
     pub uuid: String,
+    pub number: String,
     pub provisioning_code: String,
     pub user_agent: String,
     pub read_receipts: bool,
