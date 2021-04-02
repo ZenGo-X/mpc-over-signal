@@ -6,6 +6,10 @@ keygen & signing implementation.
 
 [multi-party-bls]: https://github.com/ZenGo-X/multi-party-bls
 
+## Watch the video
+
+Demo record is available [here](https://user-images.githubusercontent.com/14890036/113412748-489c6380-93e3-11eb-8d1f-78aea0c21b0d.mp4).
+
 ## Build a program
 
 It requires [Rust](https://www.rust-lang.org) to be installed. This project uses Rust Nightly
