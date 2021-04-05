@@ -10,7 +10,7 @@ over secure transport backed by Signal.
 [round_based]: https://docs.rs/round-based
 [SM]: https://docs.rs/round-based/*/round_based/trait.StateMachine.html
 
-Here is a [demo] showing how to use this library to run [threshold BLS](https://github.com/ZenGo-X/multi-party-bls) keygen & signing.
+Here is a [demo] showing how to use this library to run [threshold BLS](https://github.com/ZenGo-X/multi-party-bls) keygen & signing. For more details read our [blog](https://medium.com/zengo/mpc-over-signal-977db599de66) as well. 
 
 [demo]: ./demo
 
